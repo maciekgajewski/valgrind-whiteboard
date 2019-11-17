@@ -27,22 +27,104 @@
 #include "pub_tool_basics.h"
 #include "pub_tool_tooliface.h"
 
+#include <stdint.h>
+
 static void wb_post_clo_init(void)
 {
 }
 
+uint64_t blocks = 0;
+static void add_one_block()
+{
+   blocks++;
+}
+
+static void on_fn_call(Addr addr)
+{
+   DiEpoch de = VG_(current_DiEpoch)();
+   HChar *filename;
+   HChar *dirname;
+   HChar *fnname;
+   UInt linenum;
+
+   Bool r1 = VG_(get_fnname)(de, addr, &fnname);
+   // Bool r2 = VG_(get_filename_linenum)(de, addr, &filename, &dirname, &linenum);
+   // if (r1 && r2)
+   //    VG_(printf)
+   // ("Function call. fn=%s, file=%s, dir=%s, line=%d", fnname, filename, dirname, linenum);
+   if (r1)
+      VG_(printf)
+      ("Function call. fn=%s\n", fnname);
+   else
+      VG_(printf)
+      ("Function call. addr=%p\n", addr);
+}
+
 static IRSB *wb_instrument(VgCallbackClosure *closure,
-                           IRSB *bb,
+                           IRSB *sbIn,
                            const VexGuestLayout *layout,
                            const VexGuestExtents *vge,
                            const VexArchInfo *archinfo_host,
                            IRType gWordTy, IRType hWordTy)
 {
-   return bb;
+   IRSB *sbOut;
+   int i;
+   IRDirty *di;
+   DiEpoch ep = VG_(current_DiEpoch)();
+
+   if (gWordTy != hWordTy)
+   {
+      /* We don't currently support this case. */
+      VG_(tool_panic)
+      ("host/guest word size mismatch");
+   }
+
+   /* Set up SB */
+   sbOut = deepCopyIRSBExceptStmts(sbIn);
+
+   // Copy verbatim any IR preamble preceding the first IMark
+   i = 0;
+   while (i < sbIn->stmts_used && sbIn->stmts[i]->tag != Ist_IMark)
+   {
+      addStmtToIRSB(sbOut, sbIn->stmts[i]);
+      i++;
+   }
+
+   for (/*use current i*/; i < sbIn->stmts_used; i++)
+   {
+      IRStmt *st = sbIn->stmts[i];
+      if (!st || st->tag == Ist_NoOp)
+         continue;
+      di = unsafeIRDirty_0_N(0, "add_one_block",
+                             VG_(fnptr_to_fnentry)(&add_one_block),
+                             mkIRExprVec_0());
+      addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+
+      if (st->tag == Ist_IMark)
+      {
+         const HChar *fnname;
+         const Addr addr = st->Ist.IMark.addr;
+         if (VG_(get_fnname_if_entry)(ep, addr,
+                                      &fnname))
+         {
+            IRExpr **argv;
+            argv = mkIRExprVec_1(mkIRExpr_HWord(addr));
+            di = unsafeIRDirty_0_N(1, "on_fn_call",
+                                   VG_(fnptr_to_fnentry)(&on_fn_call),
+                                   argv);
+            addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+         }
+      }
+
+      addStmtToIRSB(sbOut, st);
+   }
+   return sbOut;
 }
 
 static void wb_fini(Int exitcode)
 {
+   VG_(printf)
+   ("wb_fini. blocks=%llu\n", blocks);
 }
 
 static void wb_pre_clo_init(void)
