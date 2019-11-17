@@ -39,7 +39,7 @@ static void add_one_block()
    blocks++;
 }
 
-static void on_fn_call(Addr addr)
+static void on_fn_entry(Addr addr)
 {
    DiEpoch de = VG_(current_DiEpoch)();
    HChar *filename;
@@ -54,10 +54,20 @@ static void on_fn_call(Addr addr)
    // ("Function call. fn=%s, file=%s, dir=%s, line=%d", fnname, filename, dirname, linenum);
    if (r1)
       VG_(printf)
-      ("Function call. fn=%s\n", fnname);
-   else
-      VG_(printf)
-      ("Function call. addr=%p\n", addr);
+   ("Function entry. fn=%s\n", fnname);
+   else VG_(printf)("Function entry. addr=%p\n", addr);
+}
+
+static void on_call()
+{
+   VG_(printf)
+   ("Call\n");
+}
+
+static void on_ret()
+{
+   VG_(printf)
+   ("Ret\n");
 }
 
 static IRSB *wb_instrument(VgCallbackClosure *closure,
@@ -100,6 +110,7 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
                              mkIRExprVec_0());
       addStmtToIRSB(sbOut, IRStmt_Dirty(di));
 
+      // detect fun entry
       if (st->tag == Ist_IMark)
       {
          const HChar *fnname;
@@ -109,9 +120,30 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
          {
             IRExpr **argv;
             argv = mkIRExprVec_1(mkIRExpr_HWord(addr));
-            di = unsafeIRDirty_0_N(1, "on_fn_call",
-                                   VG_(fnptr_to_fnentry)(&on_fn_call),
+            di = unsafeIRDirty_0_N(1, "on_fn_entry",
+                                   VG_(fnptr_to_fnentry)(&on_fn_entry),
                                    argv);
+            addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+         }
+      }
+
+      // detect call/ret
+      if (st->tag == Ist_Exit)
+      {
+
+         ppIRJumpKind(st->Ist.Exit.jk);
+         VG_(printf)
+         (" exit, \n");
+
+         if (st->Ist.Exit.jk == Ijk_Call)
+         {
+            di = unsafeIRDirty_0_N(0, "on_call", VG_(fnptr_to_fnentry)(&on_call), mkIRExprVec_0());
+            addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+         }
+
+         if (st->Ist.Exit.jk == Ijk_Ret)
+         {
+            di = unsafeIRDirty_0_N(0, "on_ret", VG_(fnptr_to_fnentry)(&on_ret), mkIRExprVec_0());
             addStmtToIRSB(sbOut, IRStmt_Dirty(di));
          }
       }
