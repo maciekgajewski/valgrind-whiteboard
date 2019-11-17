@@ -2135,3 +2135,11 @@
 
 # /VEX/switchback/
 /VEX/switchback/switchback
+
+#Whiteboard
+/whiteboard/.deps/
+/whiteboard/Makefile
+/whiteboard/Makefile.in
+/whiteboard/tests/Makefile
+/whiteboard/tests/Makefile.in
+/whiteboard/whiteboard-amd64-linux

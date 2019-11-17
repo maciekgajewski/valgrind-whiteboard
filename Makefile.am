@@ -12,7 +12,8 @@ TOOLS = \
 		massif \
 		dhat \
 		lackey \
-		none
+		none \
+		whiteboard
 
 EXP_TOOLS = \
 		exp-sgcheck \

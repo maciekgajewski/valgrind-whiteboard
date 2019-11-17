@@ -4766,6 +4766,8 @@ AC_CONFIG_FILES([
    none/tests/x86-darwin/Makefile
    none/tests/amd64-solaris/Makefile
    none/tests/x86-solaris/Makefile
+   whiteboard/Makefile
+   whiteboard/tests/Makefile
    exp-sgcheck/Makefile
    exp-sgcheck/tests/Makefile
    exp-bbv/Makefile
