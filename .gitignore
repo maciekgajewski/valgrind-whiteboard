@@ -2143,3 +2143,4 @@
 /whiteboard/tests/Makefile
 /whiteboard/tests/Makefile.in
 /whiteboard/whiteboard-amd64-linux
+whiteboard/vgpreload_whiteboard-amd64-linux.so

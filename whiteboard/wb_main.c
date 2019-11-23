@@ -24,41 +24,39 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
+#include "wb_malloc.h"
+#include "wb_state.h"
+
 #include "pub_tool_basics.h"
 #include "pub_tool_tooliface.h"
 
 #include <stdint.h>
 
-// State
-static Bool trace = 0;
-static Addr main_sp;
-ThreadId main_tid;
-
 static void
 on_main_entry()
 {
-   trace = 1;
-   main_tid = VG_(get_running_tid)();
-   main_sp = VG_(get_SP)(main_tid);
+   wb_trace = 1;
+   wb_main_tid = VG_(get_running_tid)();
+   wb_main_sp = VG_(get_SP)(wb_main_tid);
    VG_(printf)
-   (">>>> main entered. sp=%p\n", main_sp);
+   (">>>> main entered. sp=%p\n", wb_main_sp);
 }
 
 static void on_instruction(Addr addr)
 {
-   if (trace == 0)
+   if (wb_trace == 0)
       return;
 
    ThreadId tid = VG_(get_running_tid)();
-   if (tid != main_tid)
+   if (tid != wb_main_tid)
       return; // ignore other threads
 
    Addr sp = VG_(get_SP)(tid);
-   if (sp > main_sp)
+   if (sp > wb_main_sp)
    {
       VG_(printf)
       (">>>> main left\n");
-      trace = 0;
+      wb_trace = 0;
    }
 
    DiEpoch de = VG_(current_DiEpoch)();
@@ -172,7 +170,18 @@ static void wb_pre_clo_init(void)
     wb_instrument,
     wb_fini);
 
-   /* No needs, no core events to track */
+   VG_(needs_malloc_replacement)
+   (wb_malloc,
+    wb___builtin_new,
+    wb___builtin_vec_new,
+    wb_calloc,
+    wb_free,
+    wb___builtin_delete,
+    wb_memalign,
+    wb___builtin_vec_delete,
+    wb_realloc,
+    wb_malloc_usable_size,
+    WB_MALLOC_DEFAULT_REDZONE_SZB);
 }
 
 VG_DETERMINE_INTERFACE_VERSION(wb_pre_clo_init)
