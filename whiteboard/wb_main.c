@@ -53,21 +53,31 @@ static void on_fn_entry(Addr addr)
    //    VG_(printf)
    // ("Function call. fn=%s, file=%s, dir=%s, line=%d", fnname, filename, dirname, linenum);
    if (r1)
+   {
       VG_(printf)
-   ("Function entry. fn=%s\n", fnname);
-   else VG_(printf)("Function entry. addr=%p\n", addr);
-}
-
-static void on_call()
-{
-   VG_(printf)
-   ("Call\n");
-}
-
-static void on_ret()
-{
-   VG_(printf)
-   ("Ret\n");
+      ("Function entry. fn=%s, ", fnname);
+      Vg_FnNameKind nameKind = VG_(get_fnname_kind)(fnname);
+      switch (nameKind)
+      {
+      case Vg_FnNameNormal:
+         VG_(printf)
+         (" normal\n");
+         break;
+      case Vg_FnNameMain:
+         VG_(printf)
+         (" main\n");
+         break;
+      case Vg_FnNameBelowMain:
+         VG_(printf)
+         (" below main\n");
+         break;
+      }
+   }
+   else
+   {
+      VG_(printf)
+      ("Function entry. addr=%p\n", addr);
+   }
 }
 
 static IRSB *wb_instrument(VgCallbackClosure *closure,
@@ -123,27 +133,6 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
             di = unsafeIRDirty_0_N(1, "on_fn_entry",
                                    VG_(fnptr_to_fnentry)(&on_fn_entry),
                                    argv);
-            addStmtToIRSB(sbOut, IRStmt_Dirty(di));
-         }
-      }
-
-      // detect call/ret
-      if (st->tag == Ist_Exit)
-      {
-
-         ppIRJumpKind(st->Ist.Exit.jk);
-         VG_(printf)
-         (" exit, \n");
-
-         if (st->Ist.Exit.jk == Ijk_Call)
-         {
-            di = unsafeIRDirty_0_N(0, "on_call", VG_(fnptr_to_fnentry)(&on_call), mkIRExprVec_0());
-            addStmtToIRSB(sbOut, IRStmt_Dirty(di));
-         }
-
-         if (st->Ist.Exit.jk == Ijk_Ret)
-         {
-            di = unsafeIRDirty_0_N(0, "on_ret", VG_(fnptr_to_fnentry)(&on_ret), mkIRExprVec_0());
             addStmtToIRSB(sbOut, IRStmt_Dirty(di));
          }
       }
