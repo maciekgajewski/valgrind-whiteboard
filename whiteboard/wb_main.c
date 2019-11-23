@@ -29,29 +29,37 @@
 
 #include <stdint.h>
 
-static void wb_post_clo_init(void)
-{
-}
-
-uint64_t blocks = 0;
-static void add_one_block()
-{
-   blocks++;
-}
-
+// State
 static Bool trace = 0;
+static Addr main_sp;
+ThreadId main_tid;
 
-static void on_main_entry()
+static void
+on_main_entry()
 {
-   VG_(printf)
-   (">>>> main entered\n");
    trace = 1;
+   main_tid = VG_(get_running_tid)();
+   main_sp = VG_(get_SP)(main_tid);
+   VG_(printf)
+   (">>>> main entered. sp=%p\n", main_sp);
 }
 
 static void on_instruction(Addr addr)
 {
    if (trace == 0)
       return;
+
+   ThreadId tid = VG_(get_running_tid)();
+   if (tid != main_tid)
+      return; // ignore other threads
+
+   Addr sp = VG_(get_SP)(tid);
+   if (sp > main_sp)
+   {
+      VG_(printf)
+      (">>>> main left\n");
+      trace = 0;
+   }
 
    DiEpoch de = VG_(current_DiEpoch)();
    HChar *filename;
@@ -63,7 +71,11 @@ static void on_instruction(Addr addr)
    Bool r2 = VG_(get_filename_linenum)(de, addr, &filename, &dirname, &linenum);
    if (r1 && r2)
       VG_(printf)
-   ("fn=%s, file=%s, dir=%s, line=%d\n", fnname, filename, dirname, linenum);
+   ("fn=%s, file=%s, dir=%s, line=%d, sp=%p\n", fnname, filename, dirname, linenum, sp);
+}
+
+static void wb_post_clo_init(void)
+{
 }
 
 static IRSB *wb_instrument(VgCallbackClosure *closure,
@@ -101,11 +113,6 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
       IRStmt *st = sbIn->stmts[i];
       if (!st || st->tag == Ist_NoOp)
          continue;
-      di = unsafeIRDirty_0_N(0, "add_one_block",
-                             VG_(fnptr_to_fnentry)(&add_one_block),
-                             mkIRExprVec_0());
-      addStmtToIRSB(sbOut, IRStmt_Dirty(di));
-
       // detect fun entry
       if (st->tag == Ist_IMark)
       {
@@ -141,8 +148,6 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
 
 static void wb_fini(Int exitcode)
 {
-   VG_(printf)
-   ("wb_fini. blocks=%llu\n", blocks);
 }
 
 static void wb_pre_clo_init(void)
