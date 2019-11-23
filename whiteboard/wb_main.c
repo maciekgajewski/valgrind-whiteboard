@@ -39,8 +39,20 @@ static void add_one_block()
    blocks++;
 }
 
-static void on_fn_entry(Addr addr)
+static Bool trace = 0;
+
+static void on_main_entry()
 {
+   VG_(printf)
+   (">>>> main entered\n");
+   trace = 1;
+}
+
+static void on_instruction(Addr addr)
+{
+   if (trace == 0)
+      return;
+
    DiEpoch de = VG_(current_DiEpoch)();
    HChar *filename;
    HChar *dirname;
@@ -48,36 +60,10 @@ static void on_fn_entry(Addr addr)
    UInt linenum;
 
    Bool r1 = VG_(get_fnname)(de, addr, &fnname);
-   // Bool r2 = VG_(get_filename_linenum)(de, addr, &filename, &dirname, &linenum);
-   // if (r1 && r2)
-   //    VG_(printf)
-   // ("Function call. fn=%s, file=%s, dir=%s, line=%d", fnname, filename, dirname, linenum);
-   if (r1)
-   {
+   Bool r2 = VG_(get_filename_linenum)(de, addr, &filename, &dirname, &linenum);
+   if (r1 && r2)
       VG_(printf)
-      ("Function entry. fn=%s, ", fnname);
-      Vg_FnNameKind nameKind = VG_(get_fnname_kind)(fnname);
-      switch (nameKind)
-      {
-      case Vg_FnNameNormal:
-         VG_(printf)
-         (" normal\n");
-         break;
-      case Vg_FnNameMain:
-         VG_(printf)
-         (" main\n");
-         break;
-      case Vg_FnNameBelowMain:
-         VG_(printf)
-         (" below main\n");
-         break;
-      }
-   }
-   else
-   {
-      VG_(printf)
-      ("Function entry. addr=%p\n", addr);
-   }
+   ("fn=%s, file=%s, dir=%s, line=%d\n", fnname, filename, dirname, linenum);
 }
 
 static IRSB *wb_instrument(VgCallbackClosure *closure,
@@ -125,18 +111,29 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
       {
          const HChar *fnname;
          const Addr addr = st->Ist.IMark.addr;
+         IRExpr **argv;
+
+         // detect the entry to main
          if (VG_(get_fnname_if_entry)(ep, addr,
                                       &fnname))
          {
-            IRExpr **argv;
-            argv = mkIRExprVec_1(mkIRExpr_HWord(addr));
-            di = unsafeIRDirty_0_N(1, "on_fn_entry",
-                                   VG_(fnptr_to_fnentry)(&on_fn_entry),
-                                   argv);
-            addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+            if (VG_(strcmp)(fnname, "main") == 0)
+            {
+               di = unsafeIRDirty_0_N(0, "on_main_entry",
+                                      VG_(fnptr_to_fnentry)(&on_main_entry),
+                                      mkIRExprVec_0());
+               addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+            }
          }
-      }
 
+         //track all instructions
+         argv = mkIRExprVec_1(mkIRExpr_HWord(addr));
+         di = unsafeIRDirty_0_N(1, "on_instruction",
+                                VG_(fnptr_to_fnentry)(&on_instruction),
+                                argv);
+         addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+      }
+      // add original statement
       addStmtToIRSB(sbOut, st);
    }
    return sbOut;
