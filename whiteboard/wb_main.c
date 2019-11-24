@@ -42,6 +42,12 @@ on_main_entry()
    (">>>> main entered. sp=%p\n", wb_main_sp);
 }
 
+// local state
+static HChar *last_filename = NULL;
+static HChar *last_dirname = NULL;
+static HChar *last_fnname = NULL;
+static UInt last_linenum = 0;
+
 static void on_instruction(Addr addr)
 {
    if (wb_trace == 0)
@@ -57,6 +63,7 @@ static void on_instruction(Addr addr)
       VG_(printf)
       (">>>> main left\n");
       wb_trace = 0;
+      return;
    }
 
    DiEpoch de = VG_(current_DiEpoch)();
@@ -68,8 +75,18 @@ static void on_instruction(Addr addr)
    Bool r1 = VG_(get_fnname)(de, addr, &fnname);
    Bool r2 = VG_(get_filename_linenum)(de, addr, &filename, &dirname, &linenum);
    if (r1 && r2)
-      VG_(printf)
-   ("fn=%s, file=%s, dir=%s, line=%d, sp=%p\n", fnname, filename, dirname, linenum, sp);
+   {
+      // avoid printing duplicate lines
+      if (filename != last_filename && dirname != last_dirname && linenum != last_linenum)
+      {
+
+         VG_(printf)
+         ("fn=%s, file=%s, dir=%s, line=%d, sp=%p\n", fnname, filename, dirname, linenum, sp);
+         last_filename = filename;
+         last_dirname = dirname;
+         last_linenum = linenum;
+      }
+   }
 }
 
 static void wb_post_clo_init(void)
