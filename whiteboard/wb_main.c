@@ -89,6 +89,34 @@ static void on_instruction(Addr addr)
    }
 }
 
+static void on_data_read(Addr addr, Int size)
+{
+   VG_(printf)
+   ("data_read, addr=%p, size=%d\n", addr, size);
+}
+
+static void addEvent_Dr_guarded(IRSB *sb, IRExpr *daddr, Int dsize, IRExpr *guard)
+{
+   IRExpr **argv;
+   IRDirty *di;
+
+   argv = mkIRExprVec_2(daddr, mkIRExpr_HWord(dsize));
+   di = unsafeIRDirty_0_N(/*regparms*/ 2,
+                          "on_data_read", VG_(fnptr_to_fnentry)(on_data_read),
+                          argv);
+   if (guard)
+   {
+      di->guard = guard;
+   }
+   addStmtToIRSB(sb, IRStmt_Dirty(di));
+}
+/* Add an ordinary read event, by adding a guarded read event with an
+   always-true guard. */
+static void addEvent_Dr(IRSB *sb, IRExpr *daddr, Int dsize)
+{
+   addEvent_Dr_guarded(sb, daddr, dsize, NULL);
+}
+
 static void wb_post_clo_init(void)
 {
 }
@@ -155,6 +183,27 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
                                 argv);
          addStmtToIRSB(sbOut, IRStmt_Dirty(di));
       }
+
+      else if (st->tag == Ist_WrTmp)
+      {
+         IRExpr *data = st->Ist.WrTmp.data;
+         if (data->tag == Iex_Load)
+         {
+            addEvent_Dr(sbOut, data->Iex.Load.addr,
+                        sizeofIRType(data->Iex.Load.ty));
+         }
+      }
+
+      else if (st->tag == Ist_LoadG)
+      {
+         IRLoadG *lg = st->Ist.LoadG.details;
+         IRType type = Ity_INVALID;     /* loaded type */
+         IRType typeWide = Ity_INVALID; /* after implicit widening */
+         typeOfIRLoadGOp(lg->cvt, &typeWide, &type);
+         addEvent_Dr_guarded(sbOut, lg->addr,
+                             sizeofIRType(type), lg->guard);
+      }
+
       // add original statement
       addStmtToIRSB(sbOut, st);
    }
