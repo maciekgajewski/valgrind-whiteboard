@@ -102,7 +102,7 @@ static void on_data_read(Addr addr, Int size)
    ("data_read, addr=%p, size=%d\n", addr, size);
 }
 
-static void on_data_write(Addr addr /*, IRExpr *data*/)
+static void on_data_write(Addr addr, IRExpr *data)
 {
    if (wb_trace == 0)
       return;
@@ -238,6 +238,11 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
                                 VG_(fnptr_to_fnentry)(&on_data_write),
                                 argv);
          addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+         VG_(printf)
+         ("data write. expr=");
+         ppIRExpr(data);
+         VG_(printf)
+         ("\n");
       }
 
       // add original statement
