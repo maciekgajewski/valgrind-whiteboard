@@ -91,8 +91,29 @@ static void on_instruction(Addr addr)
 
 static void on_data_read(Addr addr, Int size)
 {
+   if (wb_trace == 0)
+      return;
+
+   ThreadId tid = VG_(get_running_tid)();
+   if (tid != wb_main_tid)
+      return; // ignore other threads
+
    VG_(printf)
    ("data_read, addr=%p, size=%d\n", addr, size);
+}
+
+static void on_data_write(Addr addr /*, IRExpr *data*/)
+{
+   if (wb_trace == 0)
+      return;
+
+   ThreadId tid = VG_(get_running_tid)();
+   if (tid != wb_main_tid)
+      return; // ignore other threads
+
+   VG_(printf)
+   ("data_write, addr=%p\n", addr);
+   // ppIRExpr(data);
 }
 
 static void addEvent_Dr_guarded(IRSB *sb, IRExpr *daddr, Int dsize, IRExpr *guard)
@@ -129,6 +150,7 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
                            IRType gWordTy, IRType hWordTy)
 {
    IRSB *sbOut;
+   IRTypeEnv *tyenv = sbIn->tyenv;
    int i;
    IRDirty *di;
    DiEpoch ep = VG_(current_DiEpoch)();
@@ -202,6 +224,20 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
          typeOfIRLoadGOp(lg->cvt, &typeWide, &type);
          addEvent_Dr_guarded(sbOut, lg->addr,
                              sizeofIRType(type), lg->guard);
+      }
+
+      else if (st->tag == Ist_Store)
+      {
+         IRExpr *addr = st->Ist.Store.addr;
+         IRExpr *data = st->Ist.Store.data;
+         //IRType type = typeOfIRExpr(tyenv, data);
+
+         //IRExpr **argv = mkIRExprVec_2(addr, data);
+         IRExpr **argv = mkIRExprVec_1(addr);
+         di = unsafeIRDirty_0_N(1, "on_data_write",
+                                VG_(fnptr_to_fnentry)(&on_data_write),
+                                argv);
+         addStmtToIRSB(sbOut, IRStmt_Dirty(di));
       }
 
       // add original statement
