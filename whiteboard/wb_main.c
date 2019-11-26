@@ -112,7 +112,24 @@ static void on_data_write(Addr addr, SizeT size)
       return; // ignore other threads
 
    VG_(printf)
-   ("data_write, addr=%p, size=%d\n", addr, size);
+
+   ("data_write, addr=%p, size=%d", addr, size);
+   if (size == 8)
+   {
+      uint64_t *dptr = (uint64_t *)(addr);
+      uint64_t data = *dptr;
+      VG_(printf)
+      (", data=0x%llX", data);
+   }
+   else if (size == 4)
+   {
+      uint32_t *dptr = (uint32_t *)(addr);
+      uint32_t data = *dptr;
+      VG_(printf)
+      (", data=0x%X", data);
+   }
+   VG_(printf)
+   ("\n");
 }
 
 static void addEvent_Dr_guarded(IRSB *sb, IRExpr *daddr, Int dsize, IRExpr *guard)
@@ -153,7 +170,6 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
    int i;
    IRDirty *di;
    DiEpoch ep = VG_(current_DiEpoch)();
-   Bool originalAdded = 0;
 
    if (gWordTy != hWordTy)
    {
@@ -175,6 +191,8 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
 
    for (/*use current i*/; i < sbIn->stmts_used; i++)
    {
+      Bool originalAdded = 0;
+
       IRStmt *st = sbIn->stmts[i];
       if (!st || st->tag == Ist_NoOp)
          continue;
@@ -228,6 +246,10 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
 
       else if (st->tag == Ist_Store)
       {
+         // add the original before the instrumentation function
+         addStmtToIRSB(sbOut, st);
+         originalAdded = 1;
+
          IRExpr *addr = st->Ist.Store.addr;
          IRExpr *data = st->Ist.Store.data;
          IRType type = typeOfIRExpr(tyenv, data);
@@ -235,17 +257,14 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
 
          //IRExpr **argv = mkIRExprVec_2(addr, data);
          IRExpr **argv = mkIRExprVec_2(addr, mkIRExpr_HWord(size));
-         di = unsafeIRDirty_0_N(2, "on_data_write",
+         di = unsafeIRDirty_0_N(0, "on_data_write",
                                 VG_(fnptr_to_fnentry)(&on_data_write),
                                 argv);
+         di->mAddr = addr;
+         di->mSize = size;
+         di->mFx = Ifx_Read;
+
          addStmtToIRSB(sbOut, IRStmt_Dirty(di));
-         /*
-         VG_(printf)
-         ("data write. expr=");
-         ppIRExpr(data);
-         VG_(printf)
-         ("\n");
-         */
       }
 
       // add original statement
