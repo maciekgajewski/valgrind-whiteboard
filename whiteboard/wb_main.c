@@ -102,7 +102,7 @@ static void on_data_read(Addr addr, Int size)
    ("data_read, addr=%p, size=%d\n", addr, size);
 }
 
-static void on_data_write(Addr addr, IRExpr *data)
+static void on_data_write(Addr addr, SizeT size)
 {
    if (wb_trace == 0)
       return;
@@ -112,8 +112,7 @@ static void on_data_write(Addr addr, IRExpr *data)
       return; // ignore other threads
 
    VG_(printf)
-   ("data_write, addr=%p\n", addr);
-   // ppIRExpr(data);
+   ("data_write, addr=%p, size=%d\n", addr, size);
 }
 
 static void addEvent_Dr_guarded(IRSB *sb, IRExpr *daddr, Int dsize, IRExpr *guard)
@@ -154,6 +153,7 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
    int i;
    IRDirty *di;
    DiEpoch ep = VG_(current_DiEpoch)();
+   Bool originalAdded = 0;
 
    if (gWordTy != hWordTy)
    {
@@ -230,23 +230,27 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
       {
          IRExpr *addr = st->Ist.Store.addr;
          IRExpr *data = st->Ist.Store.data;
-         //IRType type = typeOfIRExpr(tyenv, data);
+         IRType type = typeOfIRExpr(tyenv, data);
+         Int size = sizeofIRType(type);
 
          //IRExpr **argv = mkIRExprVec_2(addr, data);
-         IRExpr **argv = mkIRExprVec_1(addr);
-         di = unsafeIRDirty_0_N(1, "on_data_write",
+         IRExpr **argv = mkIRExprVec_2(addr, mkIRExpr_HWord(size));
+         di = unsafeIRDirty_0_N(2, "on_data_write",
                                 VG_(fnptr_to_fnentry)(&on_data_write),
                                 argv);
          addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+         /*
          VG_(printf)
          ("data write. expr=");
          ppIRExpr(data);
          VG_(printf)
          ("\n");
+         */
       }
 
       // add original statement
-      addStmtToIRSB(sbOut, st);
+      if (originalAdded == 0)
+         addStmtToIRSB(sbOut, st);
    }
    return sbOut;
 }
