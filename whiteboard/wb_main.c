@@ -32,130 +32,84 @@
 
 #include <stdint.h>
 
-static void
-on_main_entry()
-{
-   wb_trace = 1;
-   wb_main_tid = VG_(get_running_tid)();
-   wb_main_sp = VG_(get_SP)(wb_main_tid);
-   VG_(printf)
-   (">>>> main entered. sp=%p\n", wb_main_sp);
-}
-
-// local state
-static HChar *last_filename = NULL;
-static HChar *last_dirname = NULL;
-static HChar *last_fnname = NULL;
-static UInt last_linenum = 0;
-
-static void on_instruction(Addr addr)
-{
-   if (wb_trace == 0)
-      return;
-
-   ThreadId tid = VG_(get_running_tid)();
-   if (tid != wb_main_tid)
-      return; // ignore other threads
-
-   Addr sp = VG_(get_SP)(tid);
-   if (sp > wb_main_sp)
-   {
-      VG_(printf)
-      (">>>> main left\n");
-      wb_trace = 0;
-      return;
-   }
-
-   DiEpoch de = VG_(current_DiEpoch)();
-   HChar *filename;
-   HChar *dirname;
-   HChar *fnname;
-   UInt linenum;
-
-   Bool r1 = VG_(get_fnname)(de, addr, &fnname);
-   Bool r2 = VG_(get_filename_linenum)(de, addr, &filename, &dirname, &linenum);
-   if (r1 && r2)
-   {
-      // avoid printing duplicate lines
-      if (filename != last_filename && dirname != last_dirname && linenum != last_linenum)
-      {
-
-         VG_(printf)
-         ("fn=%s, file=%s, dir=%s, line=%d, sp=%p\n", fnname, filename, dirname, linenum, sp);
-         last_filename = filename;
-         last_dirname = dirname;
-         last_linenum = linenum;
-      }
-   }
-}
-
-static void on_data_read(Addr addr, Int size)
-{
-   if (wb_trace == 0)
-      return;
-
-   ThreadId tid = VG_(get_running_tid)();
-   if (tid != wb_main_tid)
-      return; // ignore other threads
-
-   VG_(printf)
-   ("data_read, addr=%p, size=%d\n", addr, size);
-}
-
-static void on_data_write(Addr addr, SizeT size)
-{
-   if (wb_trace == 0)
-      return;
-
-   ThreadId tid = VG_(get_running_tid)();
-   if (tid != wb_main_tid)
-      return; // ignore other threads
-
-   VG_(printf)
-
-   ("data_write, addr=%p, size=%d", addr, size);
-   if (size == 8)
-   {
-      uint64_t *dptr = (uint64_t *)(addr);
-      uint64_t data = *dptr;
-      VG_(printf)
-      (", data=0x%llX", data);
-   }
-   else if (size == 4)
-   {
-      uint32_t *dptr = (uint32_t *)(addr);
-      uint32_t data = *dptr;
-      VG_(printf)
-      (", data=0x%X", data);
-   }
-   VG_(printf)
-   ("\n");
-}
-
-static void addEvent_Dr_guarded(IRSB *sb, IRExpr *daddr, Int dsize, IRExpr *guard)
-{
-   IRExpr **argv;
-   IRDirty *di;
-
-   argv = mkIRExprVec_2(daddr, mkIRExpr_HWord(dsize));
-   di = unsafeIRDirty_0_N(/*regparms*/ 2,
-                          "on_data_read", VG_(fnptr_to_fnentry)(on_data_read),
-                          argv);
-   if (guard)
-   {
-      di->guard = guard;
-   }
-   addStmtToIRSB(sb, IRStmt_Dirty(di));
-}
-/* Add an ordinary read event, by adding a guarded read event with an
-   always-true guard. */
-static void addEvent_Dr(IRSB *sb, IRExpr *daddr, Int dsize)
-{
-   addEvent_Dr_guarded(sb, daddr, dsize, NULL);
-}
-
 static void wb_post_clo_init(void)
 {
+}
+
+static print_tag(IRStmtTag tag)
+{
+   switch (tag)
+   {
+   case Ist_IMark:
+      VG_(printf)
+      ("Ist_IMark");
+      break;
+   case Ist_AbiHint:
+      VG_(printf)
+      ("Ist_AbiHint");
+      break;
+   case Ist_Put:
+      VG_(printf)
+      ("Ist_Put");
+      break;
+   case Ist_NoOp:
+      VG_(printf)
+      ("Ist_NoOp");
+      break;
+   case Ist_PutI:
+      VG_(printf)
+      ("Ist_PutI");
+      break;
+   case Ist_WrTmp:
+      VG_(printf)
+      ("Ist_WrTmp");
+      break;
+   case Ist_Store:
+      VG_(printf)
+      ("Ist_Store");
+      break;
+   case Ist_LoadG:
+      VG_(printf)
+      ("Ist_LoadG");
+      break;
+   case Ist_StoreG:
+      VG_(printf)
+      ("Ist_StoreG");
+      break;
+   case Ist_CAS:
+      VG_(printf)
+      ("Ist_CAS");
+      break;
+   case Ist_LLSC:
+      VG_(printf)
+      ("Ist_LLSC");
+      break;
+   case Ist_Dirty:
+      VG_(printf)
+      ("Ist_Dirty");
+      break;
+   case Ist_MBE:
+      VG_(printf)
+      ("Ist_MBE");
+      break;
+   case Ist_Exit:
+      VG_(printf)
+      ("Ist_Exit");
+      break;
+   }
+}
+
+static void instrumentExpression(IRSB *sbOut, IRExpr *expr)
+{
+   ppIRExpr(expr);
+   VG_(printf)
+   (", tag=0x%x\n", expr->tag);
+   if (expr->tag == Iex_Binop)
+   {
+      if (expr->Iex.Binop.op == Iop_Add32)
+         VG_(printf)
+      (">>> the above is Add32\n");
+   }
 }
 
 static IRSB *wb_instrument(VgCallbackClosure *closure,
@@ -170,6 +124,7 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
    int i;
    IRDirty *di;
    DiEpoch ep = VG_(current_DiEpoch)();
+   Bool instrument = 0;
 
    if (gWordTy != hWordTy)
    {
@@ -191,8 +146,6 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
 
    for (/*use current i*/; i < sbIn->stmts_used; i++)
    {
-      Bool originalAdded = 0;
-
       IRStmt *st = sbIn->stmts[i];
       if (!st || st->tag == Ist_NoOp)
          continue;
@@ -200,76 +153,57 @@ static IRSB *wb_instrument(VgCallbackClosure *closure,
       if (st->tag == Ist_IMark)
       {
          const HChar *fnname;
-         const Addr addr = st->Ist.IMark.addr;
-         IRExpr **argv;
+         HChar *filename;
+         HChar *dirname;
+         UInt linenum;
 
-         // detect the entry to main
-         if (VG_(get_fnname_if_entry)(ep, addr,
-                                      &fnname))
+         const Addr addr = st->Ist.IMark.addr;
+
+         DiEpoch de = VG_(current_DiEpoch)();
+         Bool r1 = VG_(get_fnname)(de, addr, &fnname);
+         Bool r2 = VG_(get_filename_linenum)(de, addr, &filename, &dirname, &linenum);
+         if (r1)
          {
-            if (VG_(strcmp)(fnname, "main") == 0)
+            if (VG_(strlen)(fnname) >= 12 && VG_(strncmp)(fnname, "instrumentme", 12) == 0)
             {
-               di = unsafeIRDirty_0_N(0, "on_main_entry",
-                                      VG_(fnptr_to_fnentry)(&on_main_entry),
-                                      mkIRExprVec_0());
-               addStmtToIRSB(sbOut, IRStmt_Dirty(di));
+               VG_(printf)
+               ("instrumentme!\n");
+               instrument = 1;
+               if (r2)
+               {
+                  VG_(printf)
+                  ("%s:%d\n", filename, linenum);
+               }
+               else
+               {
+                  VG_(printf)
+                  ("dupa\n");
+               }
             }
          }
-
-         //track all instructions
-         argv = mkIRExprVec_1(mkIRExpr_HWord(addr));
-         di = unsafeIRDirty_0_N(1, "on_instruction",
-                                VG_(fnptr_to_fnentry)(&on_instruction),
-                                argv);
-         addStmtToIRSB(sbOut, IRStmt_Dirty(di));
-      }
-
-      else if (st->tag == Ist_WrTmp)
-      {
-         IRExpr *data = st->Ist.WrTmp.data;
-         if (data->tag == Iex_Load)
-         {
-            addEvent_Dr(sbOut, data->Iex.Load.addr,
-                        sizeofIRType(data->Iex.Load.ty));
-         }
-      }
-
-      else if (st->tag == Ist_LoadG)
-      {
-         IRLoadG *lg = st->Ist.LoadG.details;
-         IRType type = Ity_INVALID;     /* loaded type */
-         IRType typeWide = Ity_INVALID; /* after implicit widening */
-         typeOfIRLoadGOp(lg->cvt, &typeWide, &type);
-         addEvent_Dr_guarded(sbOut, lg->addr,
-                             sizeofIRType(type), lg->guard);
-      }
-
-      else if (st->tag == Ist_Store)
-      {
-         // add the original before the instrumentation function
-         addStmtToIRSB(sbOut, st);
-         originalAdded = 1;
-
-         IRExpr *addr = st->Ist.Store.addr;
-         IRExpr *data = st->Ist.Store.data;
-         IRType type = typeOfIRExpr(tyenv, data);
-         Int size = sizeofIRType(type);
-
-         //IRExpr **argv = mkIRExprVec_2(addr, data);
-         IRExpr **argv = mkIRExprVec_2(addr, mkIRExpr_HWord(size));
-         di = unsafeIRDirty_0_N(0, "on_data_write",
-                                VG_(fnptr_to_fnentry)(&on_data_write),
-                                argv);
-         di->mAddr = addr;
-         di->mSize = size;
-         di->mFx = Ifx_Read;
-
-         addStmtToIRSB(sbOut, IRStmt_Dirty(di));
       }
 
       // add original statement
-      if (originalAdded == 0)
-         addStmtToIRSB(sbOut, st);
+      if (instrument)
+      {
+         VG_(printf)
+         ("-------- tag=");
+         print_tag(st->tag);
+         VG_(printf)
+         ("\n");
+         ppIRStmt(st);
+         VG_(printf)
+         ("\n");
+
+         // WrTmp
+         if (st->tag == Ist_WrTmp)
+         {
+            VG_(printf)
+            (">>> WrTmp statemement\n");
+            instrumentExpression(sbOut, st->Ist.WrTmp.data);
+         }
+      }
+      addStmtToIRSB(sbOut, st);
    }
    return sbOut;
 }
